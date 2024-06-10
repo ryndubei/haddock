@@ -12,6 +12,7 @@
 -- Portability :  portable
 -----------------------------------------------------------------------------
 {-# LANGUAGE CPP, NamedFieldPuns, TupleSections, TypeApplications #-}
+{-# LANGUAGE OverloadedStrings, ExtendedDefaultRules #-}
 module Haddock.Backends.Xhtml (
   ppHtml, copyHtmlBits,
   ppHtmlIndex, ppHtmlContents,
@@ -36,7 +37,6 @@ import Haddock.Version
 import Haddock.Utils
 import Haddock.Utils.Json
 import Text.XHtml hiding ( name, title, p, quote )
-import qualified Text.XHtml as XHtml
 import Haddock.GhcUtils
 
 import Control.Monad         ( when, unless )
@@ -55,6 +55,13 @@ import Data.Map              ( Map )
 import qualified Data.Map as Map hiding ( Map )
 import qualified Data.Set as Set hiding ( Set )
 import Data.Ord              ( comparing )
+
+-- TODO: unqualify Lucid once no longer depending on Xhtml
+import qualified Lucid as L
+
+-- TODO: eventually get rid of most uses of T.pack (convert Strings to Text)
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text as T
 
 import GHC hiding ( NoLink, moduleInfo,LexicalFixity(..), anchor )
 import GHC.Types.Name
@@ -133,29 +140,25 @@ copyHtmlBits odir libdir themes withQuickjump = do
   return ()
 
 
-headHtml :: String -> Themes -> Maybe String -> Maybe String -> Html
-headHtml docTitle themes mathjax_url base_url =
-      header ! (maybe [] (\url -> [identifier "head", strAttr "data-base-url" url ]) base_url)
-    <<
-    [ meta ! [ httpequiv "Content-Type", content "text/html; charset=UTF-8"]
-    , meta ! [ XHtml.name "viewport", content "width=device-width, initial-scale=1"]
-    , thetitle << docTitle
-    , styleSheet base_url themes
-    , thelink ! [ rel "stylesheet"
-                , thetype "text/css"
-                , href (withBaseURL base_url quickJumpCssFile) ]
-             << noHtml
-    , thelink ! [ rel "stylesheet", thetype "text/css", href fontUrl] << noHtml
-    , script ! [ src (withBaseURL base_url haddockJsFile)
-               , emptyAttr "async"
-               , thetype "text/javascript" ]
-            << noHtml
-    , script ! [thetype "text/x-mathjax-config"] << primHtml mjConf
-    , script ! [src mjUrl, thetype "text/javascript"] << noHtml
-    ]
+headHtml :: String -> Themes -> Maybe String -> Maybe String -> L.Html ()
+headHtml docTitle themes mathjax_url base_url = 
+  L.header_ (maybe [] (\url -> [L.id_ "head", L.term "data-base-url" (T.pack url)]) base_url) $ do
+    L.meta_ [ L.httpEquiv_ "Content-Type", L.content_ "text/html; charset=UTF-8"]
+    L.meta_ [ L.name_ "viewport", L.content_ "width=device-width, initial-scale=1" ]
+    L.title_ (L.toHtml docTitle)
+    styleSheet base_url themes
+    L.link_ [ L.rel_ "stylesheet"
+            , L.type_ "text/css"
+            , L.href_ (T.pack $ withBaseURL base_url quickJumpCssFile) ]
+    L.link_ [ L.rel_ "stylesheet", L.type_ "text/css", L.href_ fontUrl]
+    L.script_ [ L.src_ (T.pack $ withBaseURL base_url haddockJsFile)
+              , L.term "async" mempty
+              , L.type_ "text/javascript" ] (pure () :: L.Html ())
+    L.script_ [L.type_ "text/x-mathjax-config"] (L.toHtml mjConf)
+    L.script_ [L.src_ mjUrl, L.type_ "text/javascript"] (pure () :: L.Html ())
   where
     fontUrl = "https://fonts.googleapis.com/css?family=PT+Sans:400,400i,700"
-    mjUrl = fromMaybe "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML" mathjax_url
+    mjUrl = T.pack $ fromMaybe "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML" mathjax_url
     mjConf = unwords [ "MathJax.Hub.Config({"
                      ,   "tex2jax: {"
                      ,     "processClass: \"mathjax\","
@@ -163,66 +166,61 @@ headHtml docTitle themes mathjax_url base_url =
                      ,   "}"
                      , "});" ]
 
-srcButton :: SourceURLs -> Maybe Interface -> Maybe Html
+srcButton :: SourceURLs -> Maybe Interface -> L.Html ()
 srcButton (Just src_base_url, _, _, _) Nothing =
-  Just (anchor ! [href src_base_url] << "Source")
+  L.a_ [L.href_ (T.pack src_base_url)] "Source"
 srcButton (_, Just src_module_url, _, _) (Just iface) =
   let url = spliceURL (Just $ ifaceOrigFilename iface)
                       (Just $ ifaceMod iface) Nothing Nothing src_module_url
-   in Just (anchor ! [href url] << "Source")
-srcButton _ _ =
-  Nothing
+   in L.a_ [L.href_ (T.pack url)] "Source"
+srcButton _ _ = pure ()
 
 
-wikiButton :: WikiURLs -> Maybe Module -> Maybe Html
+wikiButton :: WikiURLs -> Maybe Module -> L.Html ()
 wikiButton (Just wiki_base_url, _, _) Nothing =
-  Just (anchor ! [href wiki_base_url] << "User Comments")
+  L.a_ [L.href_ (T.pack wiki_base_url)] "User Comments"
 
 wikiButton (_, Just wiki_module_url, _) (Just mdl) =
   let url = spliceURL Nothing (Just mdl) Nothing Nothing wiki_module_url
-   in Just (anchor ! [href url] << "User Comments")
+   in L.a_ [L.href_ (T.pack url)] "User Comments"
 
-wikiButton _ _ =
-  Nothing
+wikiButton _ _ = pure ()
 
 
-contentsButton :: Maybe String -> Maybe Html
+contentsButton :: Maybe String -> L.Html ()
 contentsButton maybe_contents_url
-  = Just (anchor ! [href url] << "Contents")
-  where url = fromMaybe contentsHtmlFile maybe_contents_url
+  = L.a_ [L.href_ url] "Contents"
+  where url = T.pack $ fromMaybe contentsHtmlFile maybe_contents_url
 
 
-indexButton :: Maybe String -> Maybe Html
+indexButton :: Maybe String -> L.Html ()
 indexButton maybe_index_url
-  = Just (anchor ! [href url] << "Index")
+  = (L.a_ [L.href_ (T.pack url)] "Index")
   where url = fromMaybe indexHtmlFile maybe_index_url
 
 
 bodyHtml :: String -> Maybe Interface
     -> SourceURLs -> WikiURLs
     -> Maybe String -> Maybe String
-    -> Html -> Html
+    -> Html -> L.Html ()
 bodyHtml doctitle iface
            maybe_source_url maybe_wiki_url
            maybe_contents_url maybe_index_url
            pageContent =
-  body << [
-    divPackageHeader << [
-      nonEmptySectionName << doctitle,
-      unordList (catMaybes [
-        srcButton maybe_source_url iface,
-        wikiButton maybe_wiki_url (ifaceMod <$> iface),
-        contentsButton maybe_contents_url,
-        indexButton maybe_index_url])
-            ! [theclass "links", identifier "page-menu"]
-      ],
-    divContent << pageContent,
-    divFooter << paragraph << (
-      "Produced by " +++
-      (anchor ! [href projectUrl] << toHtml projectName) +++
-      (" version " ++ projectVersion)
+  L.body_ $ do
+    divPackageHeader $ do
+      nonEmptySectionName (L.toHtml doctitle)
+      L.ul_ [L.class_ "links", L.id_ "page-menu" ] $ do
+        srcButton maybe_source_url iface
+        wikiButton maybe_wiki_url (ifaceMod <$> iface)
+        contentsButton maybe_contents_url
+        indexButton maybe_index_url
+    L.toHtmlRaw . showHtml $ divContent pageContent
+    divFooter (L.p_ $ do
+      "Produced by "
+      L.a_ [L.href_ (T.pack projectUrl)] (L.toHtml projectName)
+      L.toHtml $ " version " ++ projectVersion
       )
-    ]
 
 moduleInfo :: Interface -> Html
 moduleInfo iface =
@@ -292,7 +290,7 @@ ppHtmlContents
    -> IO ()
 ppHtmlContents state odir doctitle _maybe_package
   themes mathjax_url maybe_index_url
-  maybe_source_url maybe_wiki_url packages showPkgs prologue debug pkg qual = do
+  maybe_source_url maybe_wiki_url packages showPkgs prologue _debug pkg qual = do
   let trees =
         [ ( piPackageInfo pinfo
           , mkModuleTree state showPkgs
@@ -313,22 +311,22 @@ ppHtmlContents state odir doctitle _maybe_package
           )
         | pinfo <- packages
         ]
-      html =
-        headHtml doctitle themes mathjax_url Nothing +++
+      html = L.html_ $ do
+        headHtml doctitle themes mathjax_url Nothing
         bodyHtml doctitle Nothing
           maybe_source_url maybe_wiki_url
-          Nothing maybe_index_url << [
+          Nothing maybe_index_url $ toHtml [
             ppPrologue pkg qual doctitle prologue,
             ppSignatureTrees pkg qual sig_trees,
             ppModuleTrees pkg qual trees
           ]
+          
   createDirectoryIfMissing True odir
-  writeUtf8File (joinPath [odir, contentsHtmlFile]) (renderToString debug html)
+  writeUtf8File (joinPath [odir, contentsHtmlFile]) (TL.unpack $ L.renderText html)
   where
     -- Extract a module's short description.
     toInstalledDescription :: InstalledInterface -> Maybe (MDoc Name)
     toInstalledDescription = fmap mkMeta . hmi_description . instInfo
-
 
 ppPrologue :: Maybe Package -> Qualification -> String -> Maybe (MDoc GHC.RdrName) -> Html
 ppPrologue _ _ _ Nothing = noHtml
@@ -535,9 +533,8 @@ ppHtmlIndex :: FilePath
             -> Bool
             -> IO ()
 ppHtmlIndex odir doctitle _maybe_package themes
-  maybe_mathjax_url maybe_contents_url maybe_source_url maybe_wiki_url ifaces debug = do
-  let html = indexPage split_indices Nothing
-              (if split_indices then [] else index)
+  maybe_mathjax_url maybe_contents_url maybe_source_url maybe_wiki_url ifaces _debug = do
+  let html = indexPage split_indices Nothing (if split_indices then [] else index)
 
   createDirectoryIfMissing True odir
 
@@ -545,20 +542,21 @@ ppHtmlIndex odir doctitle _maybe_package themes
     mapM_ (do_sub_index index) initialChars
     -- Let's add a single large index as well for those who don't know exactly what they're looking for:
     let mergedhtml = indexPage False Nothing index
-    writeUtf8File (joinPath [odir, subIndexHtmlFile merged_name]) (renderToString debug mergedhtml)
+    writeUtf8File (joinPath [odir, subIndexHtmlFile merged_name]) (TL.unpack $ L.renderText mergedhtml)
 
-  writeUtf8File (joinPath [odir, indexHtmlFile]) (renderToString debug html)
+  writeUtf8File (joinPath [odir, indexHtmlFile]) (TL.unpack $ L.renderText html)
 
   where
-    indexPage showLetters ch items =
-      headHtml (doctitle ++ " (" ++ indexName ch ++ ")") themes maybe_mathjax_url Nothing +++
+    indexPage :: Bool -> Maybe Char -> [(String, Map Name [(Module,Bool)])] -> L.Html ()
+    indexPage showLetters ch items = L.html_ $ do
+      headHtml (doctitle ++ " (" ++ indexName ch ++ ")") themes maybe_mathjax_url Nothing
       bodyHtml doctitle Nothing
         maybe_source_url maybe_wiki_url
-        maybe_contents_url Nothing << [
+        maybe_contents_url Nothing $ toHtml [
           if showLetters then indexInitialLetterLinks else noHtml,
           if null items then noHtml else
             divIndex << [sectionName << indexName ch, buildIndex items]
-          ]
+        ]
 
     indexName ch = "Index" ++ maybe "" (\c -> " - " ++ [c]) ch
     merged_name = "All"
@@ -588,7 +586,7 @@ ppHtmlIndex odir doctitle _maybe_package themes
 
     do_sub_index this_ix c
       = unless (null index_part) $
-          writeUtf8File (joinPath [odir, subIndexHtmlFile [c]]) (renderToString debug html)
+          writeUtf8File (joinPath [odir, subIndexHtmlFile [c]]) (TL.unpack $ L.renderText html)
       where
         html = indexPage True (Just c) index_part
         index_part = [(n,stuff) | (n,stuff) <- this_ix, toUpper (head n) == c]
@@ -656,7 +654,7 @@ ppHtmlModule
         -> Bool -> Interface -> IO ()
 ppHtmlModule odir doctitle themes
   maybe_mathjax_url maybe_source_url maybe_wiki_url maybe_base_url
-  maybe_contents_url maybe_index_url unicode pkg qual debug iface = do
+  maybe_contents_url maybe_index_url unicode pkg qual _debug iface = do
   let
       mdl = ifaceMod iface
       aliases = ifaceModuleAliases iface
@@ -672,17 +670,17 @@ ppHtmlModule odir doctitle themes
         | otherwise
         = toHtml mdl_str
       real_qual = makeModuleQual qual aliases mdl
-      html =
-        headHtml mdl_str_annot themes maybe_mathjax_url maybe_base_url +++
+      html = L.html_ $ do
+        headHtml mdl_str_annot themes maybe_mathjax_url maybe_base_url
         bodyHtml doctitle (Just iface)
           maybe_source_url maybe_wiki_url
-          maybe_contents_url maybe_index_url << [
+          maybe_contents_url maybe_index_url $ toHtml [
             divModuleHeader << (moduleInfo iface +++ (sectionName << mdl_str_linked)),
             ifaceToHtml maybe_source_url maybe_wiki_url iface unicode pkg real_qual
           ]
 
   createDirectoryIfMissing True odir
-  writeUtf8File (joinPath [odir, moduleHtmlFile mdl]) (renderToString debug html)
+  writeUtf8File (joinPath [odir, moduleHtmlFile mdl]) (TL.unpack $ L.renderText html)
 
 signatureDocURL :: String
 signatureDocURL = "https://wiki.haskell.org/Module_signature"

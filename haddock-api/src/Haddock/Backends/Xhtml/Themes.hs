@@ -8,6 +8,8 @@
 -- Stability   :  experimental
 -- Portability :  portable
 -----------------------------------------------------------------------------
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ExtendedDefaultRules #-}
 module Haddock.Backends.Xhtml.Themes (
     Themes,
     getThemes,
@@ -27,8 +29,8 @@ import Data.Maybe (isJust, listToMaybe)
 
 import System.Directory
 import System.FilePath
-import Text.XHtml hiding ( name, title, p, quote, (</>) )
-import qualified Text.XHtml as XHtml
+import Lucid
+import qualified Data.Text as T
 
 
 --------------------------------------------------------------------------------
@@ -177,16 +179,16 @@ cssFiles :: Themes -> [String]
 cssFiles ts = nub $ concatMap themeFiles ts
 
 
-styleSheet :: BaseURL -> Themes -> Html
-styleSheet base_url ts = toHtml $ zipWith mkLink rels ts
+styleSheet :: BaseURL -> Themes -> Html ()
+styleSheet base_url ts = mapM_ (uncurry mkLink) (zip rels ts)
   where
     rels = "stylesheet" : repeat "alternate stylesheet"
-    mkLink aRel t =
-      thelink
-        ! [ href (withBaseURL base_url (themeHref t)),  rel aRel, thetype "text/css",
-            XHtml.title (themeName t)
-          ]
-        << noHtml
+    -- maybe the high memory usage from lists is due to Strings?
+    mkLink aRel t = link_ [ href_ (T.pack $ withBaseURL base_url (themeHref t))
+                          , rel_ aRel
+                          , type_ "text/css"
+                          , title_ (T.pack $ themeName t)
+                          ]
 
 --------------------------------------------------------------------------------
 -- * Either Utilities

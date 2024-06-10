@@ -62,7 +62,9 @@ library
                , filepath
                , ghc-boot
                , mtl
+               , text
                , transformers
+               , lucid2
 
   hs-source-dirs: src
 
@@ -187,6 +189,8 @@ test-suite spec
                , hspec           ^>= 2.9
                , parsec          ^>= 3.1.13.0
                , QuickCheck      >= 2.11  && ^>= 2.14
+               , text
+               , lucid2
 
   -- Versions for the dependencies below are transitively pinned by
   -- the non-reinstallable `ghc` package and hence need no version

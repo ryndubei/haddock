@@ -10,6 +10,8 @@
 -- Stability   :  experimental
 -- Portability :  portable
 -----------------------------------------------------------------------------
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ExtendedDefaultRules #-}
 module Haddock.Backends.Xhtml.Layout (
   miniBody,
 
@@ -53,6 +55,10 @@ import Data.Maybe (fromMaybe)
 import GHC.Data.FastString ( unpackFS )
 import GHC hiding (anchor)
 import GHC.Types.Name (nameOccName)
+import Data.Text (Text)
+import qualified Lucid as L
+import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 
 --------------------------------------------------------------------------------
 -- * Sections of the document
@@ -66,6 +72,8 @@ miniBody = body ! [identifier "mini"]
 sectionDiv :: String -> Html -> Html
 sectionDiv i = thediv ! [identifier i]
 
+sectionDiv' :: Text -> L.Html () -> L.Html ()
+sectionDiv' i = L.div_ [L.id_ i]
 
 sectionName :: Html -> Html
 sectionName = paragraph ! [theclass "caption"]
@@ -73,21 +81,23 @@ sectionName = paragraph ! [theclass "caption"]
 
 -- | Make an element that always has at least something (a non-breaking space).
 -- If it would have otherwise been empty, then give it the class ".empty".
-nonEmptySectionName :: Html -> Html
+nonEmptySectionName :: L.Html () -> L.Html ()
 nonEmptySectionName c
-  | isNoHtml c = thespan ! [theclass "caption empty"] $ spaceHtml
-  | otherwise  = thespan ! [theclass "caption"]       $ c
+  | TL.null (L.renderText c) = L.span_ [L.class_ "caption empty"] " "
+  | otherwise  = L.span_ [L.class_ "caption"]       c
 
 
-divPackageHeader, divContent, divModuleHeader, divFooter,
+divContent, divModuleHeader,
   divTableOfContents, divDescription, divSynopsis, divInterface,
   divIndex, divAlphabet, divPackageList, divModuleList, divContentsList
     :: Html -> Html
 
-divPackageHeader    = sectionDiv "package-header"
+divFooter, divPackageHeader :: L.Html () -> L.Html ()
+
+divPackageHeader    = sectionDiv' "package-header"
 divContent          = sectionDiv "content"
 divModuleHeader     = sectionDiv "module-header"
-divFooter           = sectionDiv "footer"
+divFooter           = sectionDiv' "footer"
 divTableOfContents  = sectionDiv "table-of-contents"
 divContentsList     = sectionDiv "contents-list"
 divDescription      = sectionDiv "description"
@@ -123,7 +133,7 @@ divTopDecl = thediv ! [theclass "top"]
 type SubDecl = (Html, Maybe (MDoc DocName), [Html])
 
 
-divSubDecls :: (HTML a) => String -> a -> Maybe Html -> Html
+divSubDecls :: String -> String -> Maybe Html -> Html
 divSubDecls cssClass captionName = maybe noHtml wrap
   where
     wrap = (subSection <<) . (subCaption +++)
